@@ -26,7 +26,7 @@ app.config['MAX_CONTENT_LENGTH'] = MAX_CONTENT_LENGTH
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 # Together.ai API configuration
-TOGETHER_API_KEY = "2842da1501acb96bdf13df898a71f9a7e8178f5714dd463f4279feb045f0b2be"  # Replace with your actual API key
+TOGETHER_API_KEY = "enter-your-together-API"  # Replace with your actual API key
 TOGETHER_API_URL = "https://api.together.xyz/inference"
 
 def allowed_file(filename):
