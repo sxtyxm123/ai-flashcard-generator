@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Flashcard Generator</title>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        
+        * {
+            font-family: 'Inter', sans-serif;
+        }
+        
+        .gradient-bg {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        
+        .card-gradient {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        }
+        
+        .glass-effect {
+            backdrop-filter: blur(16px) saturate(180%);
+            background-color: rgba(255, 255, 255, 0.75);
+            border: 1px solid rgba(209, 213, 219, 0.3);
+        }
+        
+        .flip-card {
+            background-color: transparent;
+            perspective: 1000px;
+        }
+        
+        .flip-card-inner {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            text-align: center;
+            transition: transform 0.6s;
+            transform-style: preserve-3d;
+        }
+        
+        .flip-card.flipped .flip-card-inner {
+            transform: rotateY(180deg);
+        }
+        
+        .flip-card-front, .flip-card-back {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            -webkit-backface-visibility: hidden;
+            backface-visibility: hidden;
+            border-radius: 16px;
+            padding: 1.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 200px;
+        }
+        
+        .flip-card-back {
+            transform: rotateY(180deg);
+        }
+        
+        .animate-fade-in {
+            animation: fadeIn 0.5s ease-in-out;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .loading-spinner {
+            border: 4px solid #f3f4f6;
+            border-top: 4px solid #3b82f6;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .hover-scale {
+            transition: transform 0.2s ease-in-out;
+        }
+        
+        .hover-scale:hover {
+            transform: scale(1.05);
+        }
+        
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #f1f5f9;
+            border-radius: 4px;
+        }
+        
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+        
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // API Configuration
+        const API_BASE_URL = 'http://127.0.0.1:5000/api';
+
+        // Main App Component
+        function App() {
+            const [flashcards, setFlashcards] = useState([]);
+            const [loading, setLoading] = useState(false);
+            const [textInput, setTextInput] = useState('');
+            const [file, setFile] = useState(null);
+            const [activeTab, setActiveTab] = useState('generate');
+            const [editingCard, setEditingCard] = useState(null);
+            const [exportFormat, setExportFormat] = useState('json');
+            const [notification, setNotification] = useState(null);
+            const fileInputRef = useRef(null);
+
+            const showNotification = (message, type = 'success') => {
+                setNotification({ message, type });
+                setTimeout(() => setNotification(null), 5000);
+            };
+
+            const handleFileChange = (event) => {
+                const selectedFile = event.target.files[0];
+                if (selectedFile) {
+                    const fileSize = selectedFile.size / 1024 / 1024; // MB
+                    if (fileSize > 16) {
+                        showNotification('File size must be less than 16MB', 'error');
+                        return;
+                    }
+                    if (!selectedFile.name.match(/\.(txt|pdf)$/i)) {
+                        showNotification('Only .txt and .pdf files are supported', 'error');
+                        return;
+                    }
+                    setFile(selectedFile);
+                }
+            };
+
+            const generateFlashcards = async () => {
+                if (!textInput.trim() && !file) {
+                    showNotification('Please provide text input or upload a file', 'error');
+                    return;
+                }
+
+                setLoading(true);
+                const formData = new FormData();
+
+                if (textInput.trim()) {
+                    formData.append('text_input', textInput.trim());
+                }
+
+                if (file) {
+                    formData.append('file', file);
+                }
+
+                try {
+                    const response = await fetch(`${API_BASE_URL}/generate-flashcards`, {
+                        method: 'POST',
+                        body: formData,
+                    });
+
+                    const data = await response.json();
+
+                    if (response.ok && data.success) {
+                        setFlashcards(data.flashcards);
+                        setActiveTab('review');
+                        showNotification(`Successfully generated ${data.count} flashcards! (10-20 cards expected)`);
+                    } else {
+                        showNotification(data.error || 'Failed to generate flashcards', 'error');
+                    }
+                } catch (error) {
+                    showNotification('Network error. Please check if the server is running.', 'error');
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            const updateFlashcard = (cardId, question, answer) => {
+                setFlashcards(prevCards => 
+                    prevCards.map(card => 
+                        card.id === cardId 
+                            ? { ...card, question, answer, updated_at: new Date().toISOString() }
+                            : card
+                    )
+                );
+                setEditingCard(null);
+                showNotification('Flashcard updated successfully!');
+            };
+
+            const deleteFlashcard = (cardId) => {
+                setFlashcards(prevCards => prevCards.filter(card => card.id !== cardId));
+                showNotification('Flashcard deleted successfully!');
+            };
+
+            const exportFlashcards = async () => {
+                if (flashcards.length === 0) {
+                    showNotification('No flashcards to export', 'error');
+                    return;
+                }
+
+                try {
+                    const response = await fetch(`${API_BASE_URL}/export-flashcards`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            flashcards: flashcards,
+                            format: exportFormat
+                        }),
+                    });
+
+                    const data = await response.json();
+                    
+                    if (response.ok && data.success) {
+                        const blob = new Blob([data.data], { type: data.mime_type });
+                        const url = window.URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = data.filename;
+                        document.body.appendChild(a);
+                        a.click();
+                        window.URL.revokeObjectURL(url);
+                        document.body.removeChild(a);
+                        showNotification(`Flashcards exported as ${data.filename}`);
+                    } else {
+                        showNotification(data.error || 'Export failed', 'error');
+                    }
+                } catch (error) {
+                    showNotification('Export failed. Please try again.', 'error');
+                }
+            };
+
+            const clearAll = () => {
+                setFlashcards([]);
+                setTextInput('');
+                setFile(null);
+                if (fileInputRef.current) {
+                    fileInputRef.current.value = '';
+                }
+                setActiveTab('generate');
+                showNotification('All data cleared!');
+            };
+
+            return (
+                <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50">
+                    {/* Header */}
+                    <header className="gradient-bg text-white shadow-2xl">
+                        <div className="container mx-auto px-6 py-8">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center space-x-4">
+                                    <div className="bg-white bg-opacity-20 rounded-full p-3">
+                                        <i className="fas fa-brain text-2xl"></i>
+                                    </div>
+                                    <div>
+                                        <h1 className="text-3xl font-bold">AI Flashcard Generator</h1>
+                                        <p className="text-indigo-100 mt-1">Transform any content into interactive flashcards</p>
+                                    </div>
+                                </div>
+                                <div className="hidden md:flex items-center space-x-6 text-sm">
+                                    <div className="flex items-center space-x-2">
+                                        <i className="fas fa-check-circle"></i>
+                                        <span>AI-Powered</span>
+                                    </div>
+                                    <div className="flex items-center space-x-2">
+                                        <i className="fas fa-file-alt"></i>
+                                        <span>Multiple Formats</span>
+                                    </div>
+                                    <div className="flex items-center space-x-2">
+                                        <i className="fas fa-download"></i>
+                                        <span>Easy Export</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </header>
+
+                    {/* Notification */}
+                    {notification && (
+                        <div className={`fixed top-4 right-4 z-50 p-4 rounded-lg shadow-lg max-w-sm animate-fade-in ${
+                            notification.type === 'error' 
+                                ? 'bg-red-500 text-white' 
+                                : 'bg-green-500 text-white'
+                        }`}>
+                            <div className="flex items-center justify-between">
+                                <span>{notification.message}</span>
+                                <button 
+                                    onClick={() => setNotification(null)}
+                                    className="ml-4 text-white hover:text-gray-200"
+                                >
+                                    <i className="fas fa-times"></i>
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Navigation Tabs */}
+                    <div className="container mx-auto px-6 pt-6">
+                        <div className="flex space-x-1 bg-white rounded-xl p-1 shadow-lg">
+                            <button
+                                onClick={() => setActiveTab('generate')}
+                                className={`flex-1 py-3 px-6 rounded-lg font-medium transition-all ${
+                                    activeTab === 'generate'
+                                        ? 'bg-indigo-500 text-white shadow-lg transform scale-105'
+                                        : 'text-gray-600 hover:text-indigo-600 hover:bg-indigo-50'
+                                }`}
+                            >
+                                <i className="fas fa-plus-circle mr-2"></i>
+                                Generate
+                            </button>
+                            <button
+                                onClick={() => setActiveTab('review')}
+                                className={`flex-1 py-3 px-6 rounded-lg font-medium transition-all ${
+                                    activeTab === 'review'
+                                        ? 'bg-indigo-500 text-white shadow-lg transform scale-105'
+                                        : 'text-gray-600 hover:text-indigo-600 hover:bg-indigo-50'
+                                }`}
+                            >
+                                <i className="fas fa-eye mr-2"></i>
+                                Review ({flashcards.length})
+                            </button>
+                            <button
+                                onClick={() => setActiveTab('export')}
+                                className={`flex-1 py-3 px-6 rounded-lg font-medium transition-all ${
+                                    activeTab === 'export'
+                                        ? 'bg-indigo-500 text-white shadow-lg transform scale-105'
+                                        : 'text-gray-600 hover:text-indigo-600 hover:bg-indigo-50'
+                                }`}
+                            >
+                                <i className="fas fa-download mr-2"></i>
+                                Export
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Main Content */}
+                    <div className="container mx-auto px-6 py-8">
+                        {activeTab === 'generate' && (
+                            <GenerateTab
+                                textInput={textInput}
+                                setTextInput={setTextInput}
+                                file={file}
+                                handleFileChange={handleFileChange}
+                                fileInputRef={fileInputRef}
+                                generateFlashcards={generateFlashcards}
+                                loading={loading}
+                                clearAll={clearAll}
+                            />
+                        )}
+
+                        {activeTab === 'review' && (
+                            <ReviewTab
+                                flashcards={flashcards}
+                                editingCard={editingCard}
+                                setEditingCard={setEditingCard}
+                                updateFlashcard={updateFlashcard}
+                                deleteFlashcard={deleteFlashcard}
+                            />
+                        )}
+
+                        {activeTab === 'export' && (
+                            <ExportTab
+                                flashcards={flashcards}
+                                exportFormat={exportFormat}
+                                setExportFormat={setExportFormat}
+                                exportFlashcards={exportFlashcards}
+                            />
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        // Generate Tab Component
+        function GenerateTab({ textInput, setTextInput, file, handleFileChange, fileInputRef, generateFlashcards, loading, clearAll }) {
+            return (
+                <div className="max-w-4xl mx-auto">
+                    <div className="glass-effect rounded-2xl p-8 shadow-xl">
+                        <div className="text-center mb-8">
+                            <h2 className="text-2xl font-bold text-gray-800 mb-2">Generate Flashcards</h2>
+                            <p className="text-gray-600">Provide your educational content and let AI create perfect flashcards</p>
+                        </div>
+
+                        <div className="grid md:grid-cols-2 gap-8">
+                            {/* Text Input Section */}
+                            <div className="space-y-4">
+                                <div className="flex items-center space-x-2 mb-4">
+                                    <div className="bg-indigo-500 text-white rounded-full w-8 h-8 flex items-center justify-center text-sm font-bold">1</div>
+                                    <h3 className="text-lg font-semibold text-gray-800">Enter Text Content</h3>
+                                </div>
+                                <textarea
+                                    value={textInput}
+                                    onChange={(e) => setTextInput(e.target.value)}
+                                    placeholder="Paste your educational content here... (lecture notes, textbook excerpts, study materials, etc.)"
+                                    className="w-full h-64 p-4 border-2 border-gray-200 rounded-xl focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none transition-all resize-none custom-scrollbar"
+                                />
+                                <div className="text-sm text-gray-500 flex items-center space-x-4">
+                                    <span className="flex items-center">
+                                        <i className="fas fa-info-circle mr-2"></i>
+                                        <span>Max 5000 characters</span>
+                                    </span>
+                                    <span className="flex items-center">
+                                        <i className="fas fa-file-alt mr-2"></i>
+                                        <span>Supported files: .txt, .pdf</span>
+                                    </span>
+                                </div>
+                            </div>
+
+                            {/* File Upload Section */}
+                            <div className="space-y-4">
+                                <div className="flex items-center space-x-2 mb-4">
+                                    <div className="bg-indigo-500 text-white rounded-full w-8 h-8 flex items-center justify-center text-sm font-bold">2</div>
+                                    <h3 className="text-lg font-semibold text-gray-800">Upload File (Optional)</h3>
+                                </div>
+                                <div className="flex items-center border-2 border-gray-200 rounded-xl p-4 transition-all hover:shadow-lg">
+                                    <input
+                                        type="file"
+                                        accept=".txt,.pdf"
+                                        onChange={handleFileChange}
+                                        ref={fileInputRef}
+                                        className="w-full h-12 text-gray-700 placeholder-gray-400 bg-transparent outline-none"
+                                    />
+                                    <button
+                                        onClick={() => fileInputRef.current.click()}
+                                        className="ml-4 px-4 py-2 bg-indigo-500 text-white rounded-lg shadow-md hover:bg-indigo-600 transition-all"
+                                    >
+                                        <i className="fas fa-upload mr-2"></i>
+                                        Upload
+                                    </button>
+                                </div>
+                                {file && (
+                                    <div className="text-sm text-gray-700">
+                                        <i className="fas fa-file mr-2"></i>
+                                        {file.name} ({(file.size / 1024).toFixed(2)} KB)
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Action Buttons */}
+                        <div className="flex justify-center space-x-4 mt-6">
+                            <button
+                                onClick={generateFlashcards}
+                                className={`flex-1 px-4 py-2 rounded-lg font-semibold transition-all flex items-center justify-center ${
+                                    loading 
+                                        ? 'bg-indigo-300 cursor-not-allowed' 
+                                        : 'bg-indigo-500 text-white hover:bg-indigo-600'
+                                }`}
+                                disabled={loading}
+                            >
+                                {loading && <span className="loading-spinner mr-2"></span>}
+                                <span>{loading ? 'Generating...' : 'Generate Flashcards'}</span>
+                            </button>
+                            <button
+                                onClick={clearAll}
+                                className="flex-1 px-4 py-2 bg-red-500 text-white rounded-lg shadow-md hover:bg-red-600 transition-all flex items-center justify-center"
+                            >
+                                <i className="fas fa-trash-alt mr-2"></i>
+                                Clear All
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        // Review Tab Component
+        function ReviewTab({ flashcards, editingCard, setEditingCard, updateFlashcard, deleteFlashcard }) {
+            return (
+                <div className="max-w-4xl mx-auto">
+                    <div className="glass-effect rounded-2xl p-8 shadow-xl">
+                        <div className="text-center mb-8">
+                            <h2 className="text-2xl font-bold text-gray-800 mb-2">Review Flashcards</h2>
+                            <p className="text-gray-600">Check and edit the flashcards generated by AI</p>
+                        </div>
+
+                        {flashcards.length === 0 ? (
+                            <div className="text-center py-16">
+                                <i className="fas fa-frown text-4xl text-gray-400 mb-4"></i>
+                                <p className="text-gray-500">No flashcards found. Generate some flashcards first.</p>
+                            </div>
+                        ) : (
+                            <div className="space-y-4">
+                                {flashcards.map((card) => (
+                                    <div key={card.id} className="p-4 bg-white rounded-lg shadow-md transition-all hover:shadow-lg">
+                                        {editingCard === card.id ? (
+                                            <EditingCardForm
+                                                card={card}
+                                                setEditingCard={setEditingCard}
+                                                updateFlashcard={updateFlashcard}
+                                            />
+                                        ) : (
+                                            <>
+                                                <div className="text-gray-800 font-semibold text-lg mb-2">
+                                                    {card.question}
+                                                </div>
+                                                <div className="text-gray-600 mb-4">
+                                                    {card.answer}
+                                                </div>
+                                                <div className="flex justify-end space-x-2">
+                                                    <button
+                                                        onClick={() => setEditingCard(card.id)}
+                                                        className="px-4 py-2 bg-indigo-500 text-white rounded-lg shadow-md hover:bg-indigo-600 transition-all flex items-center"
+                                                    >
+                                                        <i className="fas fa-edit mr-2"></i>
+                                                        Edit
+                                                    </button>
+                                                    <button
+                                                        onClick={() => deleteFlashcard(card.id)}
+                                                        className="px-4 py-2 bg-red-500 text-white rounded-lg shadow-md hover:bg-red-600 transition-all flex items-center"
+                                                    >
+                                                        <i className="fas fa-trash-alt mr-2"></i>
+                                                        Delete
+                                                    </button>
+                                                </div>
+                                            </>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        // Editing Card Form Component
+        function EditingCardForm({ card, setEditingCard, updateFlashcard }) {
+            const [question, setQuestion] = useState(card.question);
+            const [answer, setAnswer] = useState(card.answer);
+
+            const handleSubmit = (e) => {
+                e.preventDefault();
+                updateFlashcard(card.id, question, answer);
+            };
+
+            return (
+                <form onSubmit={handleSubmit} className="space-y-4">
+                    <div>
+                        <label className="block text-gray-700 font-semibold mb-2">
+                            Question
+                        </label>
+                        <input
+                            type="text"
+                            value={question}
+                            onChange={(e) => setQuestion(e.target.value)}
+                            className="w-full p-3 border-2 border-gray-200 rounded-lg focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none transition-all"
+                            required
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-gray-700 font-semibold mb-2">
+                            Answer
+                        </label>
+                        <textarea
+                            value={answer}
+                            onChange={(e) => setAnswer(e.target.value)}
+                            className="w-full h-32 p-3 border-2 border-gray-200 rounded-lg focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none transition-all resize-none"
+                            required
+                        />
+                    </div>
+                    <div className="flex justify-end space-x-2">
+                        <button
+                            type="button"
+                            onClick={() => setEditingCard(null)}
+                            className="px-4 py-2 bg-gray-300 text-gray-700 rounded-lg shadow-md hover:bg-gray-400 transition-all flex items-center"
+                        >
+                            <i className="fas fa-times mr-2"></i>
+                            Cancel
+                        </button>
+                        <button
+                            type="submit"
+                            className="px-4 py-2 bg-indigo-500 text-white rounded-lg shadow-md hover:bg-indigo-600 transition-all flex items-center"
+                        >
+                            <i className="fas fa-save mr-2"></i>
+                            Save Changes
+                        </button>
+                    </div>
+                </form>
+            );
+        }
+
+        // Export Tab Component
+        function ExportTab({ flashcards, exportFormat, setExportFormat, exportFlashcards }) {
+            return (
+                <div className="max-w-4xl mx-auto">
+                    <div className="glass-effect rounded-2xl p-8 shadow-xl">
+                        <div className="text-center mb-8">
+                            <h2 className="text-2xl font-bold text-gray-800 mb-2">Export Flashcards</h2>
+                            <p className="text-gray-600">Save your flashcards in multiple formats</p>
+                        </div>
+
+                        {flashcards.length === 0 ? (
+                            <div className="text-center py-16">
+                                <i className="fas fa-frown text-4xl text-gray-400 mb-4"></i>
+                                <p className="text-gray-500">No flashcards found. Generate some flashcards first.</p>
+                            </div>
+                        ) : (
+                            <div className="space-y-4">
+                                <div className="flex items-center justify-between bg-white rounded-lg p-4 shadow-md">
+                                    <div className="text-gray-800 font-semibold">
+                                        Flashcards ({flashcards.length})
+                                    </div>
+                                    <div className="flex items-center space-x-2">
+                                        <span className="text-gray-600 text-sm">Export as:</span>
+                                        <select
+                                            value={exportFormat}
+                                            onChange={(e) => setExportFormat(e.target.value)}
+                                            className="p-2 border-2 border-gray-200 rounded-lg focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none transition-all"
+                                        >
+                                            <option value="json">JSON</option>
+                                            <option value="csv">CSV</option>
+                                            <option value="txt">TXT</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div className="flex justify-center">
+                                    <button
+                                        onClick={exportFlashcards}
+                                        className="px-6 py-3 bg-indigo-500 text-white rounded-lg shadow-md hover:bg-indigo-600 transition-all flex items-center"
+                                    >
+                                        <i className="fas fa-download mr-2"></i>
+                                        Export Now
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+    </script>
+</body>
+</html>
